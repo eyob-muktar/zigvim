@@ -431,22 +431,26 @@ const Editor = struct {
             },
         }
     }
-
     fn refreshScreen(self: *Self) !void {
         self.scroll();
 
-        var appendBuffer: [10]u8 = undefined;
-        const cursor_x_str = try std.fmt.bufPrint(&appendBuffer, "\x1b[{d};{d}H", .{ (self.cursor_y - self.row_offset) + 1, (self.rendered_cx - self.col_offset) + 1 }); //move the cursor
-        try self.content_buffer.appendSlice("\x1b[?25l"); //clear the screen line by line
+        self.content_buffer.clearRetainingCapacity();
+
+        var appendBuffer: [32]u8 = undefined;
+
+        try self.content_buffer.appendSlice("\x1b[?25l");
         try self.content_buffer.appendSlice("\x1b[H");
 
         try self.drawRows();
         try self.drawStatusBar();
         try self.drawMessageBar();
 
+        const cursor_x_str = try std.fmt.bufPrint(&appendBuffer, "\x1b[{d};{d}H", .{ (self.cursor_y - self.row_offset) + 1, (self.rendered_cx - self.col_offset) + 1 });
         try self.content_buffer.appendSlice(cursor_x_str);
+
         try self.content_buffer.appendSlice("\x1b[?25h");
-        _ = try self.tty.writer().print("{s}", .{self.content_buffer.items});
+
+        _ = try self.tty.writer().write(self.content_buffer.items);
     }
 
     fn moveCursor(self: *Self, key: u16) void {
