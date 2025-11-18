@@ -609,7 +609,15 @@ const Editor = struct {
                     const highlight = row.highlight.items[self.col_offset..upper_bound];
                     var current_color: u8 = 0;
                     for (line, 0..) |char, index| {
-                        if (highlight[index] == HIGHLIGHT.HL_NORMAL) {
+                        if (std.ascii.isControl(char)) {
+                            const sym = if (char <= 26) '@' + char else '?';
+                            try self.content_buffer.appendSlice("\x1b[7m");
+                            try self.content_buffer.append(sym);
+                            try self.content_buffer.appendSlice("\x1b[m");
+                            if (current_color != 0) {
+                                try self.content_buffer.writer().print("\x1b[{d}m", .{current_color});
+                            }
+                        } else if (highlight[index] == HIGHLIGHT.HL_NORMAL) {
                             if (current_color != 0) {
                                 try self.content_buffer.appendSlice("\x1b[39m");
                                 current_color = 0;
