@@ -22,7 +22,7 @@ const HOME_KEY: u16 = 1006;
 const END_KEY: u16 = 1007;
 const DEL_KEY: u16 = 1008;
 
-const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH, HL_COMMENT };
+const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH, HL_COMMENT, HL_KEYWORD1, HL_KEYWORD2 };
 
 pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void {
     _ = buffer[0..];
@@ -33,6 +33,8 @@ pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void 
 
 pub fn syntaxToColor(highlight: HIGHLIGHT) u8 {
     switch (highlight) {
+        .HL_KEYWORD2 => return 33,
+        .HL_KEYWORD1 => return 32,
         .HL_COMMENT => return 36,
         .HL_STRING => return 35,
         .HL_NUMBER => return 31,
@@ -47,7 +49,7 @@ pub fn isSeparator(char: u8) bool {
 }
 
 // const HLDB = [_]EditorSyntax{.{ .file_type = &[_]u8{'c'}, .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = &[_]u8{"ab"} }};
-const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//" }};
+const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .keywords = &[_][]const u8{ "switch", "if", "while", "for", "break", "continue", "return", "else", "struct", "union", "typedef", "static", "enum", "class", "case", "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|", "void|" } }};
 
 const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []const u8, flags: packed struct {
     HL_NUMBER: bool = false,
@@ -56,7 +58,8 @@ const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []
     HL_COMMENT: bool = false,
     HL_KEYWORD1: bool = false,
     HL_KEYWORD2: bool = false,
-}, single_line_comment: ?[]const u8 = null };
+}, single_line_comment: ?[]const u8 = null, keywords: []const []const u8 };
+
 const PromptArgs = struct { addn_msg: []const u8 = "", callback: fn (e: *Editor, buffer: []const u8, char: u16) anyerror!void = promptDefaultArgFn };
 
 const EditorRow = struct {
@@ -171,6 +174,26 @@ const EditorRow = struct {
                 if (syntax.flags.HL_NUMBER) {
                     if ((std.ascii.isDigit(char) and (prev_sep or prev_hl == HIGHLIGHT.HL_NUMBER)) or (char == '.' and prev_hl == HIGHLIGHT.HL_NUMBER)) {
                         try self.highlight.insert(i, HIGHLIGHT.HL_NUMBER);
+                        prev_sep = false;
+                        continue;
+                    }
+                }
+                if (prev_sep) {
+                    var j: u8 = 0;
+                    while (j < syntax.keywords.len) : (j += 1) {
+                        var key_len = syntax.keywords[j].len;
+                        const is_kw2 = syntax.keywords[j][key_len - 1] == '|';
+                        if (is_kw2) key_len -= 1;
+                        const safe_end_index = @min(self.render.items.len, i + key_len);
+
+                        if (std.mem.eql(u8, syntax.keywords[j][0..key_len], self.render.items[i..safe_end_index]) and
+                            (self.render.items.len >= safe_end_index or isSeparator(self.render.items[safe_end_index])))
+                        {
+                            @memset(self.highlight.items[i .. i + key_len], if (is_kw2) HIGHLIGHT.HL_KEYWORD2 else HIGHLIGHT.HL_KEYWORD1);
+                            break;
+                        }
+                    }
+                    if (j != syntax.keywords.len - 1) {
                         prev_sep = false;
                         continue;
                     }
