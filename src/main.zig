@@ -22,7 +22,7 @@ const HOME_KEY: u16 = 1006;
 const END_KEY: u16 = 1007;
 const DEL_KEY: u16 = 1008;
 
-const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH };
+const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH, HL_COMMENT };
 
 pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void {
     _ = buffer[0..];
@@ -33,6 +33,7 @@ pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void 
 
 pub fn syntaxToColor(highlight: HIGHLIGHT) u8 {
     switch (highlight) {
+        .HL_COMMENT => return 36,
         .HL_STRING => return 35,
         .HL_NUMBER => return 31,
         .HL_MATCH => return 34,
@@ -45,7 +46,8 @@ pub fn isSeparator(char: u8) bool {
     return std.ascii.isWhitespace(char) or is_separator;
 }
 
-const HLDB = [_]EditorSyntax{.{ .file_type = &[_]u8{'c'}, .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true } }};
+// const HLDB = [_]EditorSyntax{.{ .file_type = &[_]u8{'c'}, .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = &[_]u8{"ab"} }};
+const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//" }};
 
 const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []const u8, flags: packed struct {
     HL_NUMBER: bool = false,
@@ -54,7 +56,7 @@ const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []
     HL_COMMENT: bool = false,
     HL_KEYWORD1: bool = false,
     HL_KEYWORD2: bool = false,
-} };
+}, single_line_comment: ?[]const u8 = null };
 const PromptArgs = struct { addn_msg: []const u8 = "", callback: fn (e: *Editor, buffer: []const u8, char: u16) anyerror!void = promptDefaultArgFn };
 
 const EditorRow = struct {
@@ -129,10 +131,23 @@ const EditorRow = struct {
         var in_string: u8 = 0;
 
         if (self.editor.file_type) |syntax| {
+            const slc: ?[]const u8 = syntax.single_line_comment;
+            var slc_len: u8 = 0;
+            if (slc) |value| {
+                slc_len = @intCast(value.len);
+            }
+
             var i: u8 = 0;
             while (i < self.render.items.len) : (i += 1) {
                 const char = self.render.items[i];
                 const prev_hl = if (i > 0) self.highlight.items[i - 1] else HIGHLIGHT.HL_NORMAL;
+
+                if (slc_len > 0 and in_string == 0) {
+                    if (std.mem.startsWith(u8, self.render.items[i..], slc.?)) {
+                        @memset(self.highlight.items[i..self.highlight.items.len], HIGHLIGHT.HL_COMMENT);
+                        break;
+                    }
+                }
 
                 if (syntax.flags.HL_STRING) {
                     if (in_string != 0) {
