@@ -33,13 +33,13 @@ pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void 
 
 pub fn syntaxToColor(highlight: HIGHLIGHT) u8 {
     switch (highlight) {
-        .HL_KEYWORD2 => return 33,
-        .HL_KEYWORD1 => return 32,
-        .HL_MLCOMMENT, .HL_COMMENT => return 36,
-        .HL_STRING => return 35,
-        .HL_NUMBER => return 31,
-        .HL_MATCH => return 34,
-        else => return 37,
+        .HL_KEYWORD2 => return 36,
+        .HL_KEYWORD1 => return 33,
+        .HL_MLCOMMENT, .HL_COMMENT => return 90,
+        .HL_STRING => return 32,
+        .HL_NUMBER => return 35,
+        .HL_MATCH => return 31,
+        else => return 97,
     }
 }
 
@@ -49,7 +49,13 @@ pub fn isSeparator(char: u8) bool {
 }
 
 // const HLDB = [_]EditorSyntax{.{ .file_type = &[_]u8{'c'}, .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = &[_]u8{"ab"} }};
-const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "switch", "if", "while", "for", "break", "continue", "return", "else", "struct", "union", "typedef", "static", "enum", "class", "case", "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|", "void|" } }};
+const HLDB = [_]EditorSyntax{
+    .{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "switch", "if", "while", "for", "break", "continue", "return", "else", "struct", "union", "typedef", "static", "enum", "class", "case", "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|", "void|" } },
+    .{ .file_type = "zig", .file_extensions = &[_][]const u8{".zig"}, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "const", "var", "comptime", "inline", "noinline", "asm", "break", "catch", "continue", "defer", "else", "errdefer", "export", "extern", "fn", "for", "if", "inline", "noalias", "or", "orelse", "return", "resume", "struct", "switch", "test", "try", "union" } },
+    .{ .file_type = "javascript", .file_extensions = &[_][]const u8{".js"}, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "const", "var", "let", "async", "await", "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "export", "extends", "finally", "for", "function", "if", "import", "in", "instanceof", "interface", "let", "new", "of", "package", "private", "protected", "public", "return", "static", "super", "switch", "this", "throw", "try", "typeof", "var", "void", "while", "with", "yield" } },
+    .{ .file_type = "typescript", .file_extensions = &[_][]const u8{".ts"}, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "as", "abstract", "asserts", "boolean", "break", "byte", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "readonly", "do", "else", "enum", "export", "extends", "finally", "final", "for", "from", "function", "goto", "if", "implements", "import", "instanceof", "var", "interface", "int", "in", "is", "infer", "let", "new", "package", "private", "protected", "public", "return", "static", "super", "switch", "this", "throw", "try", "typeof", "type", "void", "while", "with", "yield", "async", "await", "set", "get", "module", "namespace", "declare", "Array|", "Boolean|", "Date|", "Enumerator|", "Error|", "Function|", "Number|", "Object|", "RegExp|", "String|", "true|", "false|", "Request|", "Response|", "Promise|", "key|", "ref|", "defaultValue|", "dangerouslySetInnerHTML|", "suppressContentEditableWarning|", "suppressHydrationWarning|", "autoFocus|", "contentEditable|", "spellCheck|" } },
+    .{ .file_type = "python", .file_extensions = &[_][]const u8{".py"}, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "#", .ml_comment_start = "\"\"\"", .ml_comment_end = "\"\"\"", .keywords = &[_][]const u8{ "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "exec", "finally", "for", "from" } },
+};
 
 const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []const u8, flags: packed struct {
     HL_NUMBER: bool = false,
@@ -115,7 +121,7 @@ const EditorRow = struct {
 
     pub fn update(self: *Self) !void {
         var idx: u8 = 0;
-        self.render.clearAndFree();
+        self.render.clearRetainingCapacity();
         for (self.chars.items) |char| {
             if (char == '\t') {
                 idx += 1;
@@ -129,7 +135,7 @@ const EditorRow = struct {
     }
 
     pub fn updateSyntax(self: *Self) !void {
-        self.highlight.clearAndFree();
+        self.highlight.clearRetainingCapacity();
         try self.highlight.appendNTimes(HIGHLIGHT.HL_NORMAL, self.render.items.len);
 
         var prev_sep = true;
@@ -220,7 +226,7 @@ const EditorRow = struct {
                         const safe_end_index = @min(self.render.items.len, i + key_len);
 
                         if (std.mem.eql(u8, syntax.keywords[j][0..key_len], self.render.items[i..safe_end_index]) and
-                            (self.render.items.len >= safe_end_index or isSeparator(self.render.items[safe_end_index])))
+                            (self.render.items.len <= safe_end_index or isSeparator(self.render.items[safe_end_index])))
                         {
                             @memset(self.highlight.items[i .. i + key_len], if (is_kw2) HIGHLIGHT.HL_KEYWORD2 else HIGHLIGHT.HL_KEYWORD1);
                             break;
@@ -825,10 +831,8 @@ const Editor = struct {
 
     fn findCallback(self: *Self, query: []const u8, key: u16) !void {
         const static = struct {
-            var last_match: i32 = -1;
-            var direction: i8 = 1;
-            var saved_hl_line: u8 = 0;
-            var saved_hl = std.ArrayList(HIGHLIGHT).initCapacity(self.alloc, 100) catch unreachable;
+            var last_match: isize = -1; // Changed to isize for better math
+            var direction: isize = 1;
         };
 
         if (key == '\r' or key == '\x1b') {
@@ -844,34 +848,33 @@ const Editor = struct {
             static.direction = 1;
         }
         if (static.last_match == -1) static.direction = 1;
-        var current: i32 = static.last_match;
+        var current: isize = static.last_match;
 
-        for (self.rows.items) |row| {
+        var i: usize = 0;
+        while (i < self.num_of_lines) : (i += 1) {
             current += static.direction;
             if (current == -1) {
-                current = self.num_of_lines - 1;
+                current = @intCast(self.num_of_lines - 1);
             } else if (current == self.num_of_lines) {
                 current = 0;
             }
-            const items = self.rows.items[@intCast(current)].render.items;
+            const row_idx = @as(usize, @intCast(current));
+            const row = &self.rows.items[row_idx];
 
-            const match = std.ascii.indexOfIgnoreCase(items, query);
-            // std.mem.indexOf(u8, row.render.items, query);
-            if (match) |not_null_index| {
+            const match = std.ascii.indexOfIgnoreCase(row.render.items, query);
+
+            if (match) |index| {
                 static.last_match = current;
                 self.cursor_y = @intCast(current);
-                self.cursor_x = renderedCxToRowCx(row, @intCast(not_null_index));
+                self.cursor_x = renderedCxToRowCx(row.*, @intCast(index));
+
+                // Force scroll to center (set offset to current line)
                 self.row_offset = self.num_of_lines;
 
-                // static.saved_hl_line = @intCast(current);
-                // @memcpy(static.saved_hl, self.rows.items[@intCast(current)].highlight.items[0..]);
-                // static.saved_hl = self.rows.items[@intCast(current)].highlight.items[zero..];
-
-                var a = [_]HIGHLIGHT{.HL_MATCH} ** 15;
-                try self.rows.items[@intCast(current)].highlight.replaceRange(not_null_index, query.len, a[0..query.len]);
-                //         self.rows.items[0].highlight.shrinkAndFree(100);
-                // };
-
+                const end = @min(index + query.len, row.highlight.items.len);
+                for (index..end) |j| {
+                    row.highlight.items[j] = HIGHLIGHT.HL_MATCH;
+                }
                 break;
             }
         }
