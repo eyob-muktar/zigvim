@@ -22,7 +22,7 @@ const HOME_KEY: u16 = 1006;
 const END_KEY: u16 = 1007;
 const DEL_KEY: u16 = 1008;
 
-const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH, HL_COMMENT, HL_KEYWORD1, HL_KEYWORD2 };
+const HIGHLIGHT = enum(u8) { HL_NORMAL = 0, HL_NUMBER, HL_STRING, HL_MATCH, HL_COMMENT, HL_MLCOMMENT, HL_KEYWORD1, HL_KEYWORD2 };
 
 pub fn promptDefaultArgFn(editor: *Editor, buffer: []const u8, char: u16) !void {
     _ = buffer[0..];
@@ -35,7 +35,7 @@ pub fn syntaxToColor(highlight: HIGHLIGHT) u8 {
     switch (highlight) {
         .HL_KEYWORD2 => return 33,
         .HL_KEYWORD1 => return 32,
-        .HL_COMMENT => return 36,
+        .HL_MLCOMMENT, .HL_COMMENT => return 36,
         .HL_STRING => return 35,
         .HL_NUMBER => return 31,
         .HL_MATCH => return 34,
@@ -49,7 +49,7 @@ pub fn isSeparator(char: u8) bool {
 }
 
 // const HLDB = [_]EditorSyntax{.{ .file_type = &[_]u8{'c'}, .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = &[_]u8{"ab"} }};
-const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .keywords = &[_][]const u8{ "switch", "if", "while", "for", "break", "continue", "return", "else", "struct", "union", "typedef", "static", "enum", "class", "case", "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|", "void|" } }};
+const HLDB = [_]EditorSyntax{.{ .file_type = "c", .file_extensions = &[_][]const u8{ ".c", ".h", ".cpp" }, .flags = .{ .HL_NUMBER = true, .HL_STRING = true }, .single_line_comment = "//", .ml_comment_start = "/*", .ml_comment_end = "*/", .keywords = &[_][]const u8{ "switch", "if", "while", "for", "break", "continue", "return", "else", "struct", "union", "typedef", "static", "enum", "class", "case", "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|", "void|" } }};
 
 const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []const u8, flags: packed struct {
     HL_NUMBER: bool = false,
@@ -58,7 +58,7 @@ const EditorSyntax = struct { file_type: []const u8, file_extensions: []const []
     HL_COMMENT: bool = false,
     HL_KEYWORD1: bool = false,
     HL_KEYWORD2: bool = false,
-}, single_line_comment: ?[]const u8 = null, keywords: []const []const u8 };
+}, single_line_comment: ?[]const u8 = null, ml_comment_start: ?[]const u8 = null, ml_comment_end: ?[]const u8 = null, keywords: []const []const u8 };
 
 const PromptArgs = struct { addn_msg: []const u8 = "", callback: fn (e: *Editor, buffer: []const u8, char: u16) anyerror!void = promptDefaultArgFn };
 
@@ -68,14 +68,16 @@ const EditorRow = struct {
     render: std.ArrayList(u8),
     highlight: std.ArrayList(HIGHLIGHT),
     editor: *Editor,
+    hl_open_comment: bool,
+    self_index: u16,
 
     const Self = @This();
 
-    pub fn init(alloc: std.mem.Allocator, editor: *Editor) !EditorRow {
+    pub fn init(alloc: std.mem.Allocator, editor: *Editor, self_index: u16) !EditorRow {
         const chars = try std.ArrayList(u8).initCapacity(alloc, 100);
         const render = try std.ArrayList(u8).initCapacity(alloc, 100);
         const highlight = try std.ArrayList(HIGHLIGHT).initCapacity(alloc, 100);
-        return EditorRow{ .chars = chars, .render = render, .size = 0, .highlight = highlight, .editor = editor };
+        return EditorRow{ .chars = chars, .render = render, .size = 0, .highlight = highlight, .editor = editor, .hl_open_comment = false, .self_index = self_index };
     }
 
     pub fn deinit(self: *Self) void {
@@ -132,6 +134,7 @@ const EditorRow = struct {
 
         var prev_sep = true;
         var in_string: u8 = 0;
+        var in_ml_comment = if (self.self_index > 0 and self.editor.rows.items[self.self_index - 1].hl_open_comment) true else false;
 
         if (self.editor.file_type) |syntax| {
             const slc: ?[]const u8 = syntax.single_line_comment;
@@ -139,16 +142,46 @@ const EditorRow = struct {
             if (slc) |value| {
                 slc_len = @intCast(value.len);
             }
+            const mlc_start = syntax.ml_comment_start;
+            const mlc_end = syntax.ml_comment_end;
+            var mlc_start_len: u8 = 0;
+            var mlc_end_len: u8 = 0;
+            if (mlc_start) |value| {
+                mlc_start_len = @intCast(value.len);
+            }
+            if (mlc_end) |value| {
+                mlc_end_len = @intCast(value.len);
+            }
 
             var i: u8 = 0;
             while (i < self.render.items.len) : (i += 1) {
                 const char = self.render.items[i];
                 const prev_hl = if (i > 0) self.highlight.items[i - 1] else HIGHLIGHT.HL_NORMAL;
 
-                if (slc_len > 0 and in_string == 0) {
+                if (slc_len > 0 and in_string == 0 and !in_ml_comment) {
                     if (std.mem.startsWith(u8, self.render.items[i..], slc.?)) {
                         @memset(self.highlight.items[i..self.highlight.items.len], HIGHLIGHT.HL_COMMENT);
                         break;
+                    }
+                }
+
+                if (mlc_start_len > 0 and mlc_end_len > 0 and in_string == 0) {
+                    if (in_ml_comment) {
+                        try self.highlight.insert(i, HIGHLIGHT.HL_MLCOMMENT);
+                        if (std.mem.startsWith(u8, self.render.items[i..], mlc_end.?)) {
+                            @memset(self.highlight.items[i..(i + mlc_end_len)], HIGHLIGHT.HL_COMMENT);
+                            in_ml_comment = false;
+                            i += mlc_end_len;
+                            prev_sep = true;
+                            continue;
+                        } else {
+                            continue;
+                        }
+                    } else if (std.mem.startsWith(u8, self.render.items[i..], mlc_start.?)) {
+                        @memset(self.highlight.items[i..(i + mlc_start_len)], HIGHLIGHT.HL_COMMENT);
+                        in_ml_comment = true;
+                        i += mlc_start_len;
+                        continue;
                     }
                 }
 
@@ -200,7 +233,21 @@ const EditorRow = struct {
                 }
                 prev_sep = isSeparator(char);
             }
+
+            const changed = self.hl_open_comment != in_ml_comment;
+            self.hl_open_comment = in_ml_comment;
+            if (changed and self.self_index + 1 < self.editor.num_of_lines) {
+                try self.editor.rows.items[self.self_index + 1].updateSyntax();
+            }
         }
+    }
+
+    pub fn incrementSelfIndex(self: *Self) void {
+        self.self_index += 1;
+    }
+
+    pub fn decrementSelfIndex(self: *Self) void {
+        self.self_index -= 1;
     }
 };
 
@@ -645,11 +692,14 @@ const Editor = struct {
     }
 
     fn insertRow(self: *Self, at: u16, line: []u8) !void {
-        var row = try EditorRow.init(self.alloc, self);
+        var row = try EditorRow.init(self.alloc, self, at);
         try row.chars.appendSlice(line[0..]);
         row.size += @intCast(line.len);
         try row.update();
         try self.rows.insert(at, row);
+        for (self.rows.items[(at + 1)..]) |*value| {
+            value.self_index += 1;
+        }
         self.num_of_lines += 1;
         self.dirty += 1;
     }
@@ -657,6 +707,9 @@ const Editor = struct {
     fn deleteRow(self: *Self, at: u16) !void {
         if (at >= self.num_of_lines) return;
         _ = self.rows.orderedRemove(at);
+        for (self.rows.items[at..]) |*value| {
+            value.self_index -= 1;
+        }
         self.num_of_lines -= 1;
     }
 
