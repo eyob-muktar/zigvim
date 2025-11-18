@@ -120,7 +120,7 @@ const EditorRow = struct {
         try self.updateSyntax();
     }
 
-    pub fn updateSyntax(self: *Self) Allocator.Error!void {
+    pub fn updateSyntax(self: *Self) !void {
         self.highlight.clearAndFree();
         try self.highlight.appendNTimes(HIGHLIGHT.HL_NORMAL, self.render.items.len);
 
@@ -134,18 +134,15 @@ const EditorRow = struct {
 
                 if (syntax.flags.HL_NUMBER) {
                     if ((std.ascii.isDigit(char) and (prev_sep or prev_hl == HIGHLIGHT.HL_NUMBER)) or (char == '.' and prev_hl == HIGHLIGHT.HL_NUMBER)) {
-                        try self.highlight.append(HIGHLIGHT.HL_NUMBER);
+                        try self.highlight.insert(i, HIGHLIGHT.HL_NUMBER);
                         prev_sep = false;
                         continue;
                     } else {
-                        try self.highlight.append(HIGHLIGHT.HL_NORMAL);
+                        try self.highlight.insert(i, HIGHLIGHT.HL_NORMAL);
                     }
                 }
                 prev_sep = isSeparator(char);
             }
-        } else {
-            try self.highlight.appendNTimes(HIGHLIGHT.HL_NORMAL, self.render.items.len);
-            return;
         }
     }
 };
@@ -770,10 +767,9 @@ const Editor = struct {
                     if (std.mem.eql(u8, file_ext, ext)) {
                         self.file_type = value;
 
-                        // for (self.rows.items) |row| {
-                        // var mutable_row = row;
-                        // try &mutable_row.updateSyntax();
-                        // }
+                        for (self.rows.items) |*row| {
+                            try row.updateSyntax();
+                        }
                     }
                 }
             }
