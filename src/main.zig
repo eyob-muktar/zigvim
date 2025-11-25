@@ -276,6 +276,7 @@ const Editor = struct {
     time_t: i64,
     dirty: u8,
     file_type: ?EditorSyntax,
+    gutter_width: u16,
 
     const Self = @This();
 
@@ -307,6 +308,7 @@ const Editor = struct {
             .time_t = 0,
             .dirty = 0,
             .file_type = null,
+            .gutter_width = 0,
         };
     }
 
@@ -438,6 +440,8 @@ const Editor = struct {
         }
     }
     fn refreshScreen(self: *Self) !void {
+        const digits_count_usize: usize = if (self.num_of_lines > 0) std.fmt.count("{d}", .{self.num_of_lines}) else 0;
+        self.gutter_width = @intCast(digits_count_usize + 3);
         self.scroll();
 
         self.content_buffer.clearRetainingCapacity();
@@ -451,7 +455,7 @@ const Editor = struct {
         try self.drawStatusBar();
         try self.drawMessageBar();
 
-        const cursor_x_str = try std.fmt.bufPrint(&appendBuffer, "\x1b[{d};{d}H", .{ (self.cursor_y - self.row_offset) + 1, (self.rendered_cx - self.col_offset) + 1 });
+        const cursor_x_str = try std.fmt.bufPrint(&appendBuffer, "\x1b[{d};{d}H", .{ (self.cursor_y - self.row_offset) + 1, (self.rendered_cx - self.col_offset + self.gutter_width) + 1 });
         try self.content_buffer.appendSlice(cursor_x_str);
 
         try self.content_buffer.appendSlice("\x1b[?25h");
@@ -665,6 +669,19 @@ const Editor = struct {
                     const line = row.render.items[self.col_offset..upper_bound];
                     const highlight = row.highlight.items[self.col_offset..upper_bound];
                     var current_color: u8 = 0;
+
+                    // row numbers
+                    const current_line_number_digits = std.fmt.count("{d}", .{file_row + 1});
+                    const padding = self.gutter_width - current_line_number_digits - 2; // 2 for the space between the number and the text
+                    if (padding > 0) {
+                        try self.content_buffer.appendNTimes(' ', padding);
+                    }
+                    var rowBuffer: [100]u8 = undefined;
+                    try self.content_buffer.appendSlice("\x1b[90m"); // set numbers color to gray
+                    const current_line_number = try std.fmt.bufPrint(&rowBuffer, "{d}  ", .{file_row + 1});
+                    try self.content_buffer.appendSlice(current_line_number[0..]);
+                    try self.content_buffer.appendSlice("\x1b[39m"); // reset color
+
                     for (line, 0..) |char, index| {
                         if (std.ascii.isControl(char)) {
                             const sym = if (char <= 26) '@' + char else '?';
